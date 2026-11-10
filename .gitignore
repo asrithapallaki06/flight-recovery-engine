@@ -8,6 +8,7 @@ venv/
 # Generated data and trained models (rebuilt by scripts)
 backend/datasets/*.csv
 backend/datasets/*.json
+backend/datasets/*.txt
 backend/datasets/raw/
 
 # Node / frontend

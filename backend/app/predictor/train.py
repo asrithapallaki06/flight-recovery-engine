@@ -12,7 +12,7 @@ import numpy as np
 from sklearn.metrics import brier_score_loss, roc_auc_score
 from xgboost import XGBClassifier
 
-from app.config import MODEL_META_PATH, MODEL_PATH
+from app.config import DATASETS_DIR, MODEL_META_PATH, MODEL_PATH
 from app.data.loader import load_training_frame
 from app.predictor.features import build_features
 
@@ -36,7 +36,11 @@ def main() -> dict:
     hourly_rate = train.groupby("HOUR")["DEP_DEL15"].mean()
     p_base = test["HOUR"].map(hourly_rate).fillna(y_train.mean()).to_numpy()
 
+    source_file = DATASETS_DIR / "SOURCE.txt"
+    source = source_file.read_text().strip() if source_file.exists() else "unknown"
     metrics = {
+        "data_source": "real" if source.startswith("real") else "sample",
+        "data_detail": source,
         "train_rows": int(len(train)),
         "test_rows": int(len(test)),
         "test_delay_rate": round(float(y_test.mean()), 3),
@@ -52,6 +56,11 @@ def main() -> dict:
         "metrics": metrics,
     }, indent=2))
     print(json.dumps(metrics, indent=2))
+    if metrics["data_source"] == "real":
+        print(f"\nTrained on REAL data: {source}")
+    else:
+        print("\nTrained on SAMPLE data. For real data, first run:\n"
+              "  python scripts/download_bts.py --year 2025 --months 6 7 8   (from the repo root)")
     return metrics
 
 

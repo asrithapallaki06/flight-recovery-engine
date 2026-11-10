@@ -67,7 +67,8 @@ export default function App() {
             <span>Delay model <b>{ranWith.useRisk ? 'on' : 'off'}</b></span>
             {model && (
               <span className="model-note">
-                Delay model AUC <b>{model.model_auc}</b> vs {model.baseline_auc} hour-of-day baseline
+                Delay model AUC <b>{model.model_auc}</b> vs {model.baseline_auc} baseline · trained on{' '}
+                <b>{model.data_source === 'real' ? 'real DOT flight data' : 'sample data'}</b>
               </span>
             )}
           </div>

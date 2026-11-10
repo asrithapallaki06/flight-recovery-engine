@@ -106,8 +106,11 @@ def optimized(legs: list[Leg], crews: list[Crew], use_risk: bool = True) -> list
                 model.AddAtMostOne(o[0] for o in options if o[2].id == crew_id)
             model.Maximize(sum(o[4] * o[0] for o in options))
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 2.0
-            solver.parameters.num_workers = 4
+            # One worker and a fixed seed make results identical on every computer.
+            # Each hourly problem is small, so the solver still proves the best answer quickly.
+            solver.parameters.num_workers = 1
+            solver.parameters.random_seed = 42
+            solver.parameters.max_time_in_seconds = 10.0
             solver.Solve(model)
             for var, leg, crew, dep, _ in options:
                 if solver.Value(var):
