@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Generated data and trained models (rebuilt by scripts)
+backend/datasets/*.csv
+backend/datasets/*.json
+backend/datasets/raw/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store

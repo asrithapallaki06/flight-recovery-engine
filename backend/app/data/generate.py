@@ -1,0 +1,102 @@
+"""Generate realistic sample data so the project runs without downloads.
+
+The flight history uses the same column names as the U.S. DOT Bureau of
+Transportation Statistics (BTS) On-Time Performance dataset, so you can swap
+in real data later with scripts/download_bts.py and nothing else changes.
+
+Run directly:  python -m app.data.generate
+"""
+import numpy as np
+import pandas as pd
+
+from app.config import DATASETS_DIR, HISTORY_CSV, HUB, SPOKES, WEATHER_CSV
+
+CARRIERS = ["DL", "WN", "AA", "UA", "F9", "NK"]
+CARRIER_SHARE = [0.70, 0.08, 0.07, 0.06, 0.05, 0.04]   # the hub carrier dominates
+CARRIER_EFFECT = {"DL": -0.25, "WN": 0.10, "AA": 0.05, "UA": 0.0, "F9": 0.35, "NK": 0.40}
+# Rough distance in miles from ATL, used as a model feature.
+DISTANCE = {code: int(block * 7.2) for code, block in SPOKES.items()}
+
+
+def hourly_weather(dates: pd.DatetimeIndex, rng: np.random.Generator) -> pd.DataFrame:
+    """Hourly weather for the hub, with summer afternoon thunderstorms."""
+    rows = []
+    for day in dates:
+        month = day.month
+        summer = month in (5, 6, 7, 8, 9)
+        storm_day = rng.random() < (0.35 if summer else 0.08)
+        storm_start = rng.integers(13, 18)
+        storm_len = rng.integers(1, 4)
+        base_temp = 50 + 35 * np.sin((month - 1) / 12 * np.pi)
+        for hour in range(24):
+            in_storm = storm_day and storm_start <= hour < storm_start + storm_len
+            rain = rng.random() < (0.12 if not in_storm else 0.95)
+            rows.append({
+                "DATE": day.strftime("%Y-%m-%d"),
+                "HOUR": hour,
+                "TEMP_F": round(base_temp + 10 * np.sin((hour - 9) / 24 * 2 * np.pi) + rng.normal(0, 3), 1),
+                "PRECIP_IN": round(rng.gamma(2, 0.25) if in_storm else (rng.gamma(1, 0.05) if rain else 0.0), 2),
+                "WIND_KT": round(max(0, rng.normal(22 if in_storm else 8, 5)), 1),
+                "VIS_MI": round(min(10, max(0.5, rng.normal(2 if in_storm else 9, 1.5))), 1),
+                "THUNDER": int(in_storm),
+            })
+    return pd.DataFrame(rows)
+
+
+def flight_history(dates: pd.DatetimeIndex, weather: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """ATL departures in BTS format, with delays driven by weather and time of day."""
+    wx = weather.set_index(["DATE", "HOUR"])
+    rows = []
+    flight_num = 1000
+    for day in dates:
+        date_str = day.strftime("%Y-%m-%d")
+        for dest, block in SPOKES.items():
+            for dep_hour in rng.choice(range(6, 22), size=4, replace=False):
+                dep_min = int(rng.choice([0, 15, 30, 45]))
+                carrier = rng.choice(CARRIERS, p=CARRIER_SHARE)
+                w = wx.loc[(date_str, int(dep_hour))]
+                # Delay risk: later flights inherit earlier delays; storms dominate.
+                logit = (-2.4 + 0.07 * (dep_hour - 6) + CARRIER_EFFECT[carrier]
+                         + 2.6 * w.THUNDER + 0.9 * min(w.PRECIP_IN, 1.5)
+                         + 0.04 * max(0, w.WIND_KT - 12) + 0.18 * max(0, 5 - w.VIS_MI)
+                         + (0.25 if day.dayofweek in (4, 6) else 0))
+                p_delay = 1 / (1 + np.exp(-logit))
+                cancelled = rng.random() < 0.02 + 0.12 * w.THUNDER
+                if cancelled:
+                    dep_delay = np.nan
+                elif rng.random() < p_delay:
+                    dep_delay = int(15 + rng.gamma(1.6, 30 + 40 * w.THUNDER))
+                else:
+                    dep_delay = int(rng.normal(-2, 6))
+                arr_total = dep_hour * 60 + dep_min + block
+                rows.append({
+                    "FL_DATE": date_str,
+                    "OP_CARRIER": carrier,
+                    "OP_CARRIER_FL_NUM": flight_num,
+                    "ORIGIN": HUB,
+                    "DEST": dest,
+                    "CRS_DEP_TIME": int(dep_hour) * 100 + dep_min,
+                    "CRS_ARR_TIME": (arr_total // 60 % 24) * 100 + arr_total % 60,
+                    "CRS_ELAPSED_TIME": block,
+                    "DISTANCE": DISTANCE[dest],
+                    "DEP_DELAY": dep_delay,
+                    "DEP_DEL15": np.nan if cancelled else int(dep_delay >= 15),
+                    "CANCELLED": int(cancelled),
+                })
+                flight_num += 1
+    return pd.DataFrame(rows)
+
+
+def main(days: int = 240, seed: int = 7) -> None:
+    rng = np.random.default_rng(seed)
+    dates = pd.date_range("2026-01-01", periods=days, freq="D")
+    DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+    weather = hourly_weather(dates, rng)
+    flights = flight_history(dates, weather, rng)
+    weather.to_csv(WEATHER_CSV, index=False)
+    flights.to_csv(HISTORY_CSV, index=False)
+    print(f"Wrote {len(flights):,} flights and {len(weather):,} weather hours to {DATASETS_DIR}")
+
+
+if __name__ == "__main__":
+    main()
